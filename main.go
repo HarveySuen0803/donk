@@ -16,16 +16,19 @@ donk usage:
   donk init
   donk cfg pull <name>
   donk cfg push <name>
+  donk cfg init <name>
   donk lib pull <name>
   donk help`
 
 	cfgHelpText = `USAGE:
   donk cfg pull <name>
   donk cfg push <name>
+  donk cfg init <name>
 
 EXAMPLES:
   donk cfg push nvim
-  donk cfg pull nvim`
+  donk cfg pull nvim
+  donk cfg init nvim`
 
 	libHelpText = `USAGE:
   donk lib pull <name>

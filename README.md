@@ -39,8 +39,10 @@ Configure global settings in `~/.donk/settings.json`.
 ```
 
 After defining entries like `nvim` in global settings, use `donk cfg push` to upload local changes to OSS and `donk cfg pull` to sync the latest remote version.
+For first-time migration (for example from `~/.config/nvim`), use `donk cfg init`.
 
 ```shell
+donk cfg init nvim
 donk cfg push nvim
 donk cfg pull nvim
 ```

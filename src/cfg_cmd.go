@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-const cfgUsageText = "usage: donk cfg pull <name> | donk cfg push <name>"
+const cfgUsageText = "usage: donk cfg pull <name> | donk cfg push <name> | donk cfg init <name>"
 
 const (
 	cfgManifestVersion   = 1
@@ -57,9 +57,81 @@ func (c CfgCmd) Run(args []string) error {
 		return c.Pull(args[2])
 	case len(args) == 3 && args[0] == "cfg" && args[1] == "push":
 		return c.Push(args[2])
+	case len(args) == 3 && args[0] == "cfg" && args[1] == "init":
+		return c.Init(args[2])
 	default:
 		return fmt.Errorf("invalid command arguments. %s", cfgUsageText)
 	}
+}
+
+func (c CfgCmd) Init(name string) error {
+	entry, err := findEntry(c.Context.Settings.Cfg, name)
+	if err != nil {
+		return err
+	}
+
+	linkPath, err := expandPath(entry.Link)
+	if err != nil {
+		return err
+	}
+	localCfgDir := c.buildLocalCfgDir(name)
+	absLocalCfgDir, err := filepath.Abs(localCfgDir)
+	if err != nil {
+		return err
+	}
+
+	linkInfo, err := os.Lstat(linkPath)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("configuration init failed because the configured link path does not exist: %s", linkPath)
+		}
+		return err
+	}
+	if linkInfo.Mode()&os.ModeSymlink != 0 {
+		currentTarget, err := os.Readlink(linkPath)
+		if err != nil {
+			return err
+		}
+		if !filepath.IsAbs(currentTarget) {
+			currentTarget = filepath.Join(filepath.Dir(linkPath), currentTarget)
+		}
+		absCurrentTarget, err := filepath.Abs(currentTarget)
+		if err != nil {
+			return err
+		}
+		if absCurrentTarget == absLocalCfgDir {
+			return fmt.Errorf("configuration init was skipped because the link path is already initialized: %s", linkPath)
+		}
+		return fmt.Errorf("configuration init failed because the configured link path is an unexpected symbolic link: %s", linkPath)
+	}
+	if !linkInfo.IsDir() {
+		return fmt.Errorf("configuration init failed because the configured link path is not a directory: %s", linkPath)
+	}
+
+	if _, err := os.Lstat(localCfgDir); err == nil {
+		return fmt.Errorf("configuration init failed because the local cfg directory already exists: %s", localCfgDir)
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+
+	if err := c.copyDirForCfgInit(linkPath, localCfgDir); err != nil {
+		return err
+	}
+	if err := c.Push(name); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(linkPath); err != nil {
+		return fmt.Errorf("configuration init failed while removing original directory: %w", err)
+	}
+	if err := ensureSymlink(localCfgDir, linkPath); err != nil {
+		return err
+	}
+	if err := runCommands(entry.Cmd); err != nil {
+		return err
+	}
+
+	fmt.Printf("configuration init completed successfully for: %s\n", name)
+	return nil
 }
 
 func (c CfgCmd) Pull(name string) error {
@@ -502,6 +574,74 @@ func (c CfgCmd) replaceDirAtomically(target, tmp string) error {
 		return err
 	}
 	_ = os.RemoveAll(backup)
+	return nil
+}
+
+func (c CfgCmd) copyDirForCfgInit(src string, dst string) error {
+	tmpDst := dst + ".tmp"
+	if err := os.RemoveAll(tmpDst); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(tmpDst, 0o755); err != nil {
+		return err
+	}
+	copyErr := filepath.WalkDir(src, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		targetPath := filepath.Join(tmpDst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(targetPath, 0o755)
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("configuration init failed because a non regular file was found in source directory: %s", path)
+		}
+
+		srcFile, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+
+		dstFile, err := os.OpenFile(targetPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, info.Mode().Perm())
+		if err != nil {
+			return err
+		}
+		if _, err := io.Copy(dstFile, srcFile); err != nil {
+			_ = srcFile.Close()
+			_ = dstFile.Close()
+			return err
+		}
+		if err := srcFile.Close(); err != nil {
+			_ = dstFile.Close()
+			return err
+		}
+		if err := dstFile.Close(); err != nil {
+			return err
+		}
+		return nil
+	})
+	if copyErr != nil {
+		_ = os.RemoveAll(tmpDst)
+		return copyErr
+	}
+	if err := os.Rename(tmpDst, dst); err != nil {
+		_ = os.RemoveAll(tmpDst)
+		return err
+	}
 	return nil
 }
 
