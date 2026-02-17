@@ -23,6 +23,11 @@ type Settings struct {
 	OSS     OSSConfig     `json:"oss"`
 }
 
+const (
+	defaultCfgOSSPrefix = "donk/cfg"
+	defaultLibOSSPrefix = "donk/lib"
+)
+
 type Context struct {
 	Dir      string
 	Settings Settings
@@ -49,7 +54,33 @@ func LoadSettings(path string) (Settings, error) {
 	if err := json.Unmarshal(content, &settings); err != nil {
 		return settings, fmt.Errorf("failed to parse settings file: %w", err)
 	}
+	if err := settings.normalizeEntryOSS(); err != nil {
+		return settings, err
+	}
 	return settings, nil
+}
+
+func (s *Settings) normalizeEntryOSS() error {
+	bucket := strings.Trim(s.OSS.Bucket, "/")
+	for idx := range s.Cfg {
+		if strings.TrimSpace(s.Cfg[idx].OSS) != "" {
+			continue
+		}
+		if bucket == "" {
+			return fmt.Errorf("cfg entry is missing oss and cannot use default because oss.bucket is empty. Entry name: %s", s.Cfg[idx].Name)
+		}
+		s.Cfg[idx].OSS = fmt.Sprintf("oss://%s/%s/%s", bucket, defaultCfgOSSPrefix, s.Cfg[idx].Name)
+	}
+	for idx := range s.Lib {
+		if strings.TrimSpace(s.Lib[idx].OSS) != "" {
+			continue
+		}
+		if bucket == "" {
+			return fmt.Errorf("lib entry is missing oss and cannot use default because oss.bucket is empty. Entry name: %s", s.Lib[idx].Name)
+		}
+		s.Lib[idx].OSS = fmt.Sprintf("oss://%s/%s/%s", bucket, defaultLibOSSPrefix, s.Lib[idx].Name)
+	}
+	return nil
 }
 
 func findEntry(entries []ConfigEntry, name string) (ConfigEntry, error) {
