@@ -34,9 +34,9 @@ func (l LibCmd) Pull(name string) error {
 	}
 
 	localLibDir := filepath.Join(l.Context.Dir, "lib", name)
-	link, err := expandPath(entry.Link)
+	symlinkPlans, err := buildSymlinkPlans(entry.Name, entry.Link, localLibDir)
 	if err != nil {
-		return err
+		return fmt.Errorf("library pull failed because %w", err)
 	}
 
 	if _, err := os.Lstat(localLibDir); err == nil {
@@ -44,10 +44,13 @@ func (l LibCmd) Pull(name string) error {
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	if _, err := os.Lstat(link); err == nil {
-		return fmt.Errorf("library pull failed because the link path already exists: %s", link)
-	} else if !errors.Is(err, fs.ErrNotExist) {
-		return err
+
+	for _, plan := range symlinkPlans {
+		if _, err := os.Lstat(plan.link); err == nil {
+			return fmt.Errorf("library pull failed because the link path already exists: %s", plan.link)
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
 	}
 
 	if err := os.MkdirAll(filepath.Dir(localLibDir), 0o755); err != nil {
@@ -56,7 +59,8 @@ func (l LibCmd) Pull(name string) error {
 	if err := pullSource(l.Context.Settings, entry.OSS, localLibDir); err != nil {
 		return err
 	}
-	if err := ensureSymlink(localLibDir, link); err != nil {
+
+	if err := ensureSymlinks(symlinkPlans); err != nil {
 		return err
 	}
 

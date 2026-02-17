@@ -70,42 +70,46 @@ func (c CfgCmd) Init(name string) error {
 		return err
 	}
 
-	linkPath, err := expandPath(entry.Link)
+	localCfgDir := c.buildLocalCfgDir(name)
+	linkPlans, err := buildSymlinkPlans(entry.Name, entry.Link, localCfgDir)
 	if err != nil {
 		return err
 	}
-	localCfgDir := c.buildLocalCfgDir(name)
+	primaryLinkPath, err := findPrimaryLinkPath(entry.Link, linkPlans)
+	if err != nil {
+		return err
+	}
 	absLocalCfgDir, err := filepath.Abs(localCfgDir)
 	if err != nil {
 		return err
 	}
 
-	linkInfo, err := os.Lstat(linkPath)
+	linkInfo, err := os.Lstat(primaryLinkPath)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return fmt.Errorf("configuration init failed because the configured link path does not exist: %s", linkPath)
+			return fmt.Errorf("configuration init failed because the configured link path does not exist: %s", primaryLinkPath)
 		}
 		return err
 	}
 	if linkInfo.Mode()&os.ModeSymlink != 0 {
-		currentTarget, err := os.Readlink(linkPath)
+		currentTarget, err := os.Readlink(primaryLinkPath)
 		if err != nil {
 			return err
 		}
 		if !filepath.IsAbs(currentTarget) {
-			currentTarget = filepath.Join(filepath.Dir(linkPath), currentTarget)
+			currentTarget = filepath.Join(filepath.Dir(primaryLinkPath), currentTarget)
 		}
 		absCurrentTarget, err := filepath.Abs(currentTarget)
 		if err != nil {
 			return err
 		}
 		if absCurrentTarget == absLocalCfgDir {
-			return fmt.Errorf("configuration init was skipped because the link path is already initialized: %s", linkPath)
+			return fmt.Errorf("configuration init was skipped because the link path is already initialized: %s", primaryLinkPath)
 		}
-		return fmt.Errorf("configuration init failed because the configured link path is an unexpected symbolic link: %s", linkPath)
+		return fmt.Errorf("configuration init failed because the configured link path is an unexpected symbolic link: %s", primaryLinkPath)
 	}
 	if !linkInfo.IsDir() {
-		return fmt.Errorf("configuration init failed because the configured link path is not a directory: %s", linkPath)
+		return fmt.Errorf("configuration init failed because the configured link path is not a directory: %s", primaryLinkPath)
 	}
 
 	if _, err := os.Lstat(localCfgDir); err == nil {
@@ -114,16 +118,16 @@ func (c CfgCmd) Init(name string) error {
 		return err
 	}
 
-	if err := c.copyDirForCfgInit(linkPath, localCfgDir); err != nil {
+	if err := c.copyDirForCfgInit(primaryLinkPath, localCfgDir); err != nil {
 		return err
 	}
 	if err := c.Push(name); err != nil {
 		return err
 	}
-	if err := os.RemoveAll(linkPath); err != nil {
+	if err := os.RemoveAll(primaryLinkPath); err != nil {
 		return fmt.Errorf("configuration init failed while removing original directory: %w", err)
 	}
-	if err := ensureSymlink(localCfgDir, linkPath); err != nil {
+	if err := ensureSymlinks(linkPlans); err != nil {
 		return err
 	}
 	if err := runCommands(entry.Cmd); err != nil {
@@ -175,7 +179,7 @@ func (c CfgCmd) Pull(name string) error {
 			_ = os.RemoveAll(tempLocalCfgDir)
 			return err
 		}
-		if err := c.replaceDirAtomically(localCfgDir, tempLocalCfgDir); err != nil {
+		if err := c.renameDir(localCfgDir, tempLocalCfgDir); err != nil {
 			_ = os.RemoveAll(tempLocalCfgDir)
 			return err
 		}
@@ -188,11 +192,11 @@ func (c CfgCmd) Pull(name string) error {
 			return err
 		}
 
-		link, err := expandPath(entry.Link)
+		symlinkPlans, err := buildSymlinkPlans(entry.Name, entry.Link, localCfgDir)
 		if err != nil {
 			return err
 		}
-		if err := ensureSymlink(localCfgDir, link); err != nil {
+		if err := ensureSymlinks(symlinkPlans); err != nil {
 			return err
 		}
 		if err := runCommands(entry.Cmd); err != nil {
@@ -555,25 +559,26 @@ func (c CfgCmd) isLocalCfgEqualToManifest(root string, entry CfgManifestEntry) (
 	return c.isCfgManifestFilesEqual(files, entry.Files), nil
 }
 
-func (c CfgCmd) replaceDirAtomically(target, tmp string) error {
-	backup := target + ".bak"
-	_ = os.RemoveAll(backup)
+func (c CfgCmd) renameDir(dst string, tmp string) error {
+	bak := dst + ".bak"
+	_ = os.RemoveAll(bak)
 
-	if _, err := os.Stat(target); err == nil {
-		if err := os.Rename(target, backup); err != nil {
+	if _, err := os.Stat(dst); err == nil {
+		if err := os.Rename(dst, bak); err != nil {
 			return err
 		}
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
 
-	if err := os.Rename(tmp, target); err != nil {
-		if _, bkErr := os.Stat(backup); bkErr == nil {
-			_ = os.Rename(backup, target)
+	if err := os.Rename(tmp, dst); err != nil {
+		if _, bkErr := os.Stat(bak); bkErr == nil {
+			_ = os.Rename(bak, dst)
 		}
 		return err
 	}
-	_ = os.RemoveAll(backup)
+	_ = os.RemoveAll(bak)
+
 	return nil
 }
 

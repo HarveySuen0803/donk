@@ -21,12 +21,17 @@ Configure global settings in `~/.donk/settings.json`.
   "cfg": [
     {
       "name": "nvim",
-      "link": "~/.config/nvim",
+      "link": [
+        "~/.config/nvim"
+      ],
       "cmd": ["echo nvim config pulled"]
     },
     {
       "name": "tmux",
-      "link": "~/.config/tmux",
+      "link": [
+        "~/.config/tmux",
+        "~/.config/tmux/tmux.conf -> ~/.tmux.conf"
+      ],
       "cmd": [
         "ln s ~/.tmux.conf ~/.config/tmux/tmux.conf",
         "echo tmux config pulled"
@@ -40,6 +45,9 @@ Configure global settings in `~/.donk/settings.json`.
 - Default cfg path: `oss://<oss.bucket>/donk/cfg/<cfg.name>`
 - Default lib path: `oss://<oss.bucket>/donk/lib/<lib.name>`
 - You can still set `oss` explicitly per entry to override the default.
+- `cfg[].link` and `lib[].link` both support:
+  - `"<link>"` which means `<link> -> ~/.donk/{cfg|lib}/<name>`
+  - `"<link> -> <src>"` which means `<link> -> <src>`
 
 After defining entries like `nvim` in global settings, use `donk cfg push` to upload local changes to OSS and `donk cfg pull` to sync the latest remote version.
 For first-time migration (for example from `~/.config/nvim`), use `donk cfg init`.
