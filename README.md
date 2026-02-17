@@ -4,7 +4,7 @@
     </p>
 </div>
 
-Donk is a lightweight Go CLI for syncing development configs and libraries with an OSS-backed source.
+Donk is a lightweight cli for syncing development configs and libraries with an OSS-backed source.
 
 Configure global settings in `~/.donk/settings.json`.
 

@@ -4,16 +4,37 @@ import (
 	"embed"
 	"fmt"
 	"os"
+	"strings"
 
 	donksrc "donk/src"
 )
 
 const (
-	usageText = `usage:
-		donk init
-		donk cfg pull <name>
-		donk cfg push <name>
-		donk lib pull <name>`
+	usageText = `donk is a lightweight cli for syncing development configs and libraries with an OSS-backed source.
+
+donk usage:
+  donk init
+  donk cfg pull <name>
+  donk cfg push <name>
+  donk lib pull <name>
+  donk help`
+
+	cfgHelpText = `USAGE:
+  donk cfg pull <name>
+  donk cfg push <name>
+
+EXAMPLES:
+  donk cfg push nvim
+  donk cfg pull nvim`
+
+	libHelpText = `USAGE:
+  donk lib pull <name>
+
+EXAMPLE:
+  donk lib pull zulu-jdk-8`
+
+	initHelpText = `USAGE:
+  donk init`
 )
 
 //go:embed settings.json
@@ -28,26 +49,54 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("invalid command arguments. %s", usageText)
+		fmt.Println(usageText)
+		return nil
 	}
 
 	initCmd, err := donksrc.CreateInitCmd(embeddedFiles)
 	if err != nil {
 		return err
 	}
-	context, err := initCmd.LoadContext()
-	if err != nil {
-		return err
-	}
 
 	switch args[0] {
+	case "help", "-h", "--help":
+		fmt.Println(usageText)
+		return nil
 	case "init":
+		if isHelpArg(args, 1) {
+			fmt.Println(initHelpText)
+			return nil
+		}
 		return initCmd.Run(args)
 	case "cfg":
+		if isHelpArg(args, 1) {
+			fmt.Println(cfgHelpText)
+			return nil
+		}
+		context, err := initCmd.LoadContext()
+		if err != nil {
+			return err
+		}
 		return donksrc.CreateCfgCmd(context).Run(args)
 	case "lib":
+		if isHelpArg(args, 1) {
+			fmt.Println(libHelpText)
+			return nil
+		}
+		context, err := initCmd.LoadContext()
+		if err != nil {
+			return err
+		}
 		return donksrc.CreateLibCmd(context).Run(args)
 	default:
-		return fmt.Errorf("invalid command arguments. %s", usageText)
+		return fmt.Errorf("unknown command: %s\n\n%s", args[0], usageText)
 	}
+}
+
+func isHelpArg(args []string, idx int) bool {
+	if len(args) <= idx {
+		return false
+	}
+	value := strings.TrimSpace(args[idx])
+	return value == "help" || value == "-h" || value == "--help"
 }
